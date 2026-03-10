@@ -1,0 +1,2 @@
+# newsupdate
+cantonese AI news

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的YouTube新聞廣播器</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f0f0f0; }
+        #player { width: 100%; max-width: 800px; height: 450px; margin: 20px auto; border: 1px solid #ccc; }
+        #status { font-size: 18px; margin: 20px; color: #333; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>自動播放最新內容（@nullmicgo）</h1>
+    <div id="player"></div>
+    <p id="status">正在載入最新視頻...</p>
+    <button id="refreshBtn">重新載入最新</button>
+
+    <script>
+        const API_KEY = AIzaSyDrloDZ0w8qFvwVYi_w-xJ-yJd8bigNa9I;  // ← 替換成你的 Google API Key
+        const CHANNEL_ID = 'UCtSCw2_rVZKXb_8Uo9trStQ';
+
+        function loadLatestVideo() {
+    document.getElementById('status').textContent = '正在從 YouTube API 載入最新視頻...';
+    document.getElementById('player').innerHTML = '';  // 清空舊播放器
+
+    const API_KEY = AIzaSyDrloDZ0w8qFvwVYi_w-xJ-yJd8bigNa9I;  // 確認 Key 無多餘空格或引號
+    const CHANNEL_ID = 'UCtSCw2_rVZKXb_8Uo9trStQ';
+
+    // 重要：確保有 part=snippet
+    const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${CHANNEL_ID}&maxResults=1&order=date&type=video&key=${API_KEY}`;
+
+    fetch(apiUrl)
+        .then(response => {
+            if (!response.ok) {
+                // 讀取錯誤 JSON 顯示詳細訊息
+                return response.json().then(err => {
+                    throw new Error(`API 錯誤 ${response.status}: ${err.error?.message || '未知'}`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.items && data.items.length > 0) {
+                const item = data.items[0];
+                const videoId = item.id.videoId;
+                const title = item.snippet.title;
+
+                document.getElementById('status').textContent = `正在播放: ${title}`;
+
+                const iframe = document.createElement('iframe');
+                iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&playsinline=1&rel=0&modestbranding=1`;
+                iframe.width = '100%';
+                iframe.height = '100%';
+                iframe.frameBorder = '0';
+                iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen';
+                iframe.allowFullscreen = true;
+                document.getElementById('player').appendChild(iframe);
+            } else {
+                document.getElementById('status').textContent = 'API 回傳無視頻（可能是頻道暫無新內容）。';
+            }
+        })
+        .catch(error => {
+            console.error('詳細錯誤:', error);
+            document.getElementById('status').textContent = '載入失敗：' + error.message + '（檢查 console 或 API Key）';
+        });
+}
+
+// 頁面載入自動執行
+loadLatestVideo();
+
+        // 手動刷新按鈕（萬一沒自動播或想切最新）
+        document.getElementById('refreshBtn').addEventListener('click', loadLatestVideo);
+    </script>
+</body>
+</html>

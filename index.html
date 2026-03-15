@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+    <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
@@ -9,15 +9,72 @@
         #player { width: 100%; max-width: 800px; height: 450px; margin: 20px auto; border: 1px solid #ccc; }
         #status { font-size: 18px; margin: 20px; color: #333; }
         button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
-    </style>
+        .tab-buttons { text-align: center; margin: 20px 0; }
+        .tab-buttons button {
+            padding: 10px 20px;
+            margin: 0 10px;
+            font-size: 18px;
+            cursor: pointer;
+            background: #ddd;
+            border: none;
+            border-radius: 5px;
+        }
+        .tab-buttons button.active { background: #4CAF50; color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .video-list { max-width: 800px; margin: 0 auto; }
+        .video-item {
+            border: 1px solid #ccc;
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background: white;
+        }
+        .video-item img { max-width: 100%; height: auto; }
+    </style> 
+    
 </head>
 <body>
     <h1>自動播放最新內容（@nullmicgo）</h1>
-    <div id="player"></div>
-    <p id="status">正在載入最新視頻...</p>
-    <button id="refreshBtn">重新載入最新</button>
+    <div class="tab-buttons">
+            <button id="tab-broadcast" class="active">廣播器（自動播放）</button>
+            <button id="tab-reader">RSS 閱讀器</button>
+    </div>
+
+    <div id="broadcast-content" class="tab-content active">
+    <!-- 你原本的所有內容都在這裡：h1、#player、#status、#refreshBtn 等 -->
+            <h1>自動播放最新內容（@nullmicgo）</h1>
+            <div id="player"></div>
+            <p id="status">正在載入最新視頻...</p>
+            <button id="refreshBtn">重新載入最新</button>
+        </div>
+
+        <div id="reader-content" class="tab-content">
+            <h1>RSS 閱讀器 - 最新影片摘要</h1>
+            <p>正在載入多頻道最新影片...</p>
+            <div id="video-list" class="video-list"></div>
+            <button id="refresh-reader">重新整理閱讀器</button>
+        </div>
+            <div id="player"></div>
+            <p id="status">正在載入最新視頻...</p>
+            <button id="refreshBtn">重新載入最新</button>
 
 <script>
+    // Tab 切換
+        document.getElementById('tab-broadcast').addEventListener('click', () => {
+            document.getElementById('broadcast-content').classList.add('active');
+            document.getElementById('reader-content').classList.remove('active');
+            document.getElementById('tab-broadcast').classList.add('active');
+            document.getElementById('tab-reader').classList.remove('active');
+        });
+
+            document.getElementById('tab-reader').addEventListener('click', () => {
+            document.getElementById('reader-content').classList.add('active');
+            document.getElementById('broadcast-content').classList.remove('active');
+            document.getElementById('tab-reader').classList.add('active');
+            document.getElementById('tab-broadcast').classList.remove('active');
+            loadReader();  // 第一次點擊時自動載入
+        });
     function loadLatestVideo() {
         document.getElementById('status').textContent = '正在從 YouTube API 載入最新視頻...';
         document.getElementById('player').innerHTML = '';
@@ -61,8 +118,70 @@
                 document.getElementById('status').textContent = '載入失敗：' + error.message;
             });
     }
+        // 多頻道列表（先放兩個，你之後再加）
+        const CHANNELS = [
+            { id: 'UCtSCw2_rVZKXb_8Uo9trStQ', name: 'nullmicgo' },
+            { id: 'UC6ly-Z341muZIdYGp5LGyBw', name: 'AInvest Official' }  // ← 這裡填你拿到的 UC... ID
+        ];
 
+        async function getLatestVideos(channelId, max = 3) {
+            try {
+                const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=${max}&order=date&type=video&key=${API_KEY}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('API 錯誤: ' + response.status);
+                const data = await response.json();
+                return data.items.map(item => ({
+                    videoId: item.id.videoId,
+                    title: item.snippet.title,
+                    publishedAt: new Date(item.snippet.publishedAt).toLocaleString('zh-TW'),
+                    thumbnail: item.snippet.thumbnails.medium.url,
+                    channelName: CHANNELS.find(c => c.id === channelId)?.name || '未知頻道'
+                }));
+            } catch (error) {
+                console.error(error);
+                return [];
+            }
+        }
     loadLatestVideo();
+    async function loadReader() {
+    const listDiv = document.getElementById('video-list');
+    listDiv.innerHTML = '<p>載入中...</p>';
+
+    let allVideos = [];
+    for (const channel of CHANNELS) {
+        const videos = await getLatestVideos(channel.id, 3);  // 每個頻道取最新 3 則
+        allVideos = allVideos.concat(videos);
+    }
+
+    // 按時間排序（最新在上）
+    allVideos.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+
+    if (allVideos.length === 0) {
+        listDiv.innerHTML = '<p>暫無內容或 API 錯誤，請檢查 Key 和網路。</p>';
+        return;
+    }
+
+    listDiv.innerHTML = '';
+    allVideos.forEach(video => {
+        const item = document.createElement('div');
+        item.className = 'video-item';
+        item.innerHTML = `
+            <img src="$$   {video.thumbnail}" alt="   $${video.title}">
+            <h3>${video.title}</h3>
+            <p>頻道：$$   {video.channelName} | 發布：   $${video.publishedAt}</p>
+            <p><a href="https://www.youtube.com/watch?v=${video.videoId}" target="_blank">觀看原影片</a></p>
+            <!-- 之後這裡可以加摘要區塊 -->
+        `;
+        listDiv.appendChild(item);
+    });
+}
+
+// 重新整理按鈕
+document.getElementById('refresh-reader').addEventListener('click', loadReader);
+
+// 頁面一開始預設載入廣播器
+loadLatestVideo();  // 你原本的函數
+    
 </script>
 </body>
 </html>

@@ -87,6 +87,25 @@
 
         // 取得最新影片列表
         async function getLatestVideos(channelId, max = 3) {
+            // 取得 transcript（優先中文，fallback 英文）
+async function getTranscript(videoId, preferredLang = 'zh-TW') {
+    try {
+        // 方法1: 用 Supadata 免費 API（推薦，穩定）
+        const supadataUrl = `https://api.supadata.ai/youtube/transcript?video_id=${videoId}&lang=${preferredLang}`;
+        let res = await fetch(supadataUrl);
+        if (!res.ok) {
+            // fallback 到英文
+            res = await fetch(`https://api.supadata.ai/youtube/transcript?video_id=${videoId}&lang=en`);
+        }
+        if (!res.ok) throw new Error('無法取得 transcript');
+
+        const data = await res.json();
+        // Supadata 回傳格式通常是 array of { text, start, duration }
+        const fullText = data.map(entry => entry.text).join(' ');
+        return fullText || '無可用字幕';
+
+    } catch (err) {
+        console.error('Transcript 錯誤:', err);
             try {
                 const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=${max}&order=date&type=video&key=${API_KEY}`;
                 const response = await fetch(url);

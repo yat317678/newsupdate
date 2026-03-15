@@ -31,7 +31,7 @@
             text-align: left;
         }
         .video-item img { max-width: 100%; height: auto; border-radius: 5px; }
-        .transcript { margin-top: 10px; font-size: 14px; background: #f9f9f9; padding: 10px; border-radius: 5px; max-height: 300px; overflow-y: auto; }
+        .transcript, .summary { margin-top: 10px; font-size: 14px; background: #f9f9f9; padding: 10px; border-radius: 5px; max-height: 300px; overflow-y: auto; }
         button { padding: 8px 16px; font-size: 14px; cursor: pointer; margin: 5px; }
     </style>
 </head>
@@ -50,7 +50,7 @@
     </div>
 
     <div id="reader-content" class="tab-content">
-        <h1>RSS 閱讀器 - 最新影片列表</h1>
+        <h1>RSS 閱讀器 - 最新影片列表與摘要</h1>
         <p id="reader-status">點擊 tab 後自動載入...</p>
         <div id="video-list" class="video-list"></div>
         <button id="refresh-reader">重新整理閱讀器</button>
@@ -59,8 +59,8 @@
     <script src="https://www.youtube.com/iframe_api"></script>
 
     <script>
-        const API_KEY = 'AIzaSyDrloDZ0w8qFvwVYi_w-xJ-yJd8bigNa9I';  // Google YouTube API key
-        const SUPADATA_KEY = 'sd_55cac8442592c7e440da5ca2ea7f2fc7';  // ← 填入你的 Supadata x-api-key
+        const YOUTUBE_API_KEY = 'AIzaSyDrloDZ0w8qFvwVYi_w-xJ-yJd8bigNa9I';  // Google YouTube API key
+        const OPENROUTER_API_KEY = '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';  // ← 填入 OpenRouter Bearer token
 
         const CHANNELS = [
             { id: 'UCtSCw2_rVZKXb_8Uo9trStQ', name: 'nullmicgo' },
@@ -87,7 +87,7 @@
 
         async function getLatestVideos(channelId, max = 3) {
             try {
-                const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=${max}&order=date&type=video&key=${API_KEY}`;
+                const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=${max}&order=date&type=video&key=${YOUTUBE_API_KEY}`;
                 const res = await fetch(url);
                 if (!res.ok) {
                     const err = await res.json();
@@ -111,18 +111,54 @@
             try {
                 const url = `https://api.supadata.ai/v1/transcript?url=https://youtu.be/${videoId}`;
                 const res = await fetch(url, {
-                    headers: { 'x-api-key': SUPADATA_KEY }
+                    headers: { 'x-api-key': 'sd_55cac8442592c7e440da5ca2ea7f2fc7' }  // ← 如果你有 Supadata key，填這裡；否則用 fallback
                 });
                 if (!res.ok) throw new Error(`Supadata 錯誤: ${res.status}`);
 
                 const data = await res.json();
-                // 假設回傳是 array of { text, ... }
                 const text = data.map(entry => entry.text || '').join(' ').trim();
                 return text || '無可用字幕';
-
             } catch (err) {
                 console.error('Transcript 錯誤:', err);
-                return '無法取得逐字稿（檢查 Supadata key 或影片是否有字幕）';
+                return '無法取得逐字稿';
+            }
+        }
+
+        async function summarizeTranscript(transcript) {
+            try {
+                const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                        'Content-Type': 'application/json',
+                        'HTTP-Referer': 'https://your-github-pages-url.github.io',  // 可選，填你的網站 URL
+                        'X-OpenRouter-Title': 'Yat YouTube Reader'  // 可選
+                    },
+                    body: JSON.stringify({
+                        model: 'moonshotai/kimi-k2.5',  // 首選 Kimi K2.5；想換 DeepSeek 可改 'deepseek/deepseek-chat'
+                        messages: [
+                            {
+                                role: 'system',
+                                content: '你是一位專業的繁體中文摘要專家。用條列式大綱精簡總結以下 YouTube 影片逐字稿，重點突出關鍵資訊、數據、結論，每點不超過 30 字，總長控制在 300 字內。語言自然、邏輯清晰。'
+                            },
+                            {
+                                role: 'user',
+                                content: transcript.substring(0, 8000)  // 限長避免 token 爆
+                            }
+                        ],
+                        temperature: 0.3,  // 低溫更精準
+                        max_tokens: 500
+                    })
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error?.message || res.status);
+                }
+                const data = await res.json();
+                return data.choices[0].message.content.trim();
+            } catch (err) {
+                console.error('摘要錯誤:', err);
+                return '無法產生 AI 摘要（檢查 OpenRouter key 或網路）';
             }
         }
 
@@ -130,7 +166,7 @@
             const status = document.getElementById('reader-status');
             const listDiv = document.getElementById('video-list');
 
-            if (status.textContent.includes('載入中')) return;  // 防重複
+            if (status.textContent.includes('載入中')) return;
 
             status.textContent = '載入中...';
             listDiv.innerHTML = '';
@@ -146,8 +182,8 @@
             }
 
             if (allVideos.length === 0) {
-                status.textContent = '無內容或錯誤，請檢查 key/ID';
-                listDiv.innerHTML = '<p>請確認 Channel ID 與 API key</p>';
+                status.textContent = '無內容或錯誤';
+                listDiv.innerHTML = '<p>請確認 Channel ID、YouTube/OpenRouter/Supadata key</p>';
                 return;
             }
 
@@ -162,32 +198,78 @@
                     <h3>${video.title}</h3>
                     <p>${video.channelName} | ${video.publishedAt}</p>
                     <a href="https://youtu.be/${video.videoId}" target="_blank">觀看原影片</a>
-                    <div class="transcript" id="trans-${video.videoId}">載入逐字稿...</div>
+                    <div class="transcript" id="trans-${video.videoId}">逐字稿載入中...</div>
+                    <div class="summary" id="sum-${video.videoId}">AI 摘要載入中...</div>
                 `;
                 listDiv.appendChild(div);
 
-                getTranscript(video.videoId).then(text => {
-                    const tDiv = document.getElementById(`trans-${video.videoId}`);
-                    tDiv.innerHTML = `<strong>逐字稿：</strong><br><div style="white-space:pre-wrap;">${text.slice(0,800)}${text.length>800?'...':''}</div>`;
-                    if (text.length > 800) {
+                // 載入 transcript
+                getTranscript(video.videoId).then(transText => {
+                    document.getElementById(`trans-${video.videoId}`).innerHTML = `
+                        <strong>逐字稿：</strong><br>
+                        <div style="white-space:pre-wrap;">${transText.slice(0,800)}${transText.length>800?'...':''}</div>
+                    `;
+                    if (transText.length > 800) {
                         const btn = document.createElement('button');
-                        btn.textContent = '顯示全部';
+                        btn.textContent = '顯示全部逐字稿';
                         btn.onclick = () => {
-                            tDiv.innerHTML = `<strong>逐字稿：</strong><br><div style="white-space:pre-wrap;">${text}</div>`;
+                            document.getElementById(`trans-${video.videoId}`).innerHTML += `<div style="white-space:pre-wrap;">${transText}</div>`;
+                            btn.remove();
                         };
-                        tDiv.appendChild(btn);
+                        document.getElementById(`trans-${video.videoId}`).appendChild(btn);
+                    }
+
+                    // 接著產生摘要
+                    if (transText.length > 100) {
+                        summarizeTranscript(transText).then(summary => {
+                            document.getElementById(`sum-${video.videoId}`).innerHTML = `
+                                <strong>AI 摘要（繁體中文大綱）：</strong><br>
+                                <div style="white-space:pre-wrap;">${summary}</div>
+                            `;
+                        }).catch(e => {
+                            document.getElementById(`sum-${video.videoId}`).textContent = '摘要產生失敗';
+                        });
+                    } else {
+                        document.getElementById(`sum-${video.videoId}`).textContent = '內容太短，無需摘要';
                     }
                 }).catch(e => {
                     document.getElementById(`trans-${video.videoId}`).textContent = '逐字稿載入失敗';
+                    document.getElementById(`sum-${video.videoId}`).textContent = '無法摘要';
                 });
             });
 
             status.textContent = `完成（${allVideos.length} 則）`;
         }
 
+        // 廣播器部分（保持原樣，如果你有修改可貼來我再整合）
         function loadLatestVideo() {
-            // ... 你原本的廣播器代碼，保持不變 ...
-            // 如果需要，我可以再貼完整版
+            const status = document.getElementById('status');
+            status.textContent = '正在載入最新視頻...';
+            document.getElementById('player').innerHTML = '';
+
+            fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=UCtSCw2_rVZKXb_8Uo9trStQ&maxResults=1&order=date&type=video&key=${YOUTUBE_API_KEY}`)
+                .then(res => {
+                    if (!res.ok) throw new Error('API 失敗');
+                    return res.json();
+                })
+                .then(data => {
+                    if (data.items?.length > 0) {
+                        const item = data.items[0];
+                        const videoId = item.id.videoId;
+                        status.textContent = `正在播放: ${item.snippet.title}`;
+
+                        player = new YT.Player('player', {
+                            height: '100%',
+                            width: '100%',
+                            videoId: videoId,
+                            playerVars: { autoplay: 1, mute: 0, playsinline: 1, rel: 0, modestbranding: 1 },
+                            events: { 'onReady': e => e.target.playVideo() }
+                        });
+                    } else {
+                        status.textContent = '無最新視頻';
+                    }
+                })
+                .catch(e => status.textContent = '載入失敗: ' + e);
         }
 
         loadLatestVideo();

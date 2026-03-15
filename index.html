@@ -32,7 +32,8 @@
         }
         .video-item img { max-width: 100%; height: auto; border-radius: 5px; }
         .transcript, .summary { margin-top: 10px; font-size: 14px; background: #f9f9f9; padding: 10px; border-radius: 5px; max-height: 300px; overflow-y: auto; }
-        button { padding: 8px 16px; font-size: 14px; cursor: pointer; margin: 5px; }
+        button { padding: 8px 16px; font-size: 14px; cursor: pointer; margin: 5px; background: #2196F3; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #1976D2; }
     </style>
 </head>
 <body>
@@ -51,7 +52,7 @@
 
     <div id="reader-content" class="tab-content">
         <h1>RSS 閱讀器 - 最新影片列表與摘要</h1>
-        <p id="reader-status">點擊 tab 後自動載入...</p>
+        <p id="reader-status">點擊 tab 後自動載入最新 1 則（每個頻道）...</p>
         <div id="video-list" class="video-list"></div>
         <button id="refresh-reader">重新整理閱讀器</button>
     </div>
@@ -59,9 +60,9 @@
     <script src="https://www.youtube.com/iframe_api"></script>
 
     <script>
-        const YOUTUBE_API_KEY = 'AIzaSyDrloDZ0w8qFvwVYi_w-xJ-yJd8bigNa9I';          // ← 請填入你的 Google YouTube Data API v3 key
-        const SUPADATA_API_KEY = 'sd_55cac8442592c7e440da5ca2ea7f2fc7';     // ← 請填入你的 Supadata API key (sd_開頭)
-        const OPENROUTER_API_KEY = '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';       // ← 請填入你的 OpenRouter API key
+        const YOUTUBE_API_KEY = 'AIzaSyDrloDZ0w8qFvwVYi_w-xJ-yJd8bigNa9I';          // ← 填入
+        const SUPADATA_API_KEY = 'sd_55cac8442592c7e440da5ca2ea7f2fc7';     // ← 填入 Supadata key
+        const OPENROUTER_API_KEY = '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';       // ← 填入 OpenRouter key
 
         const CHANNELS = [
             { id: 'UCtSCw2_rVZKXb_8Uo9trStQ', name: 'nullmicgo' },
@@ -86,7 +87,7 @@
             loadReader();
         });
 
-        async function getLatestVideos(channelId, max = 3) {
+        async function getLatestVideos(channelId, max = 1) {  // 改為 max=1
             try {
                 const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=${max}&order=date&type=video&key=${YOUTUBE_API_KEY}`;
                 const res = await fetch(url);
@@ -110,14 +111,12 @@
 
         async function getTranscript(videoId) {
             try {
-                // 先嘗試中文
                 let url = `https://api.supadata.ai/v1/transcript?url=https://youtu.be/${videoId}&lang=zh-TW`;
                 let res = await fetch(url, {
                     headers: { 'x-api-key': SUPADATA_API_KEY }
                 });
 
                 if (!res.ok) {
-                    // fallback 英文（AInvest 多為英文 auto-captions）
                     url = `https://api.supadata.ai/v1/transcript?url=https://youtu.be/${videoId}&lang=en`;
                     res = await fetch(url, {
                         headers: { 'x-api-key': SUPADATA_API_KEY }
@@ -144,35 +143,27 @@
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                        'Content-Type': 'application/json',
-                        'HTTP-Referer': 'https://your-github-pages-url.github.io',  // 可選，填你的網站
-                        'X-OpenRouter-Title': 'Yat YouTube Reader'            // 可選
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        model: 'moonshotai/kimi-k2.5',  // 可改成 'deepseek/deepseek-chat' 更省錢
+                        model: 'moonshotai/kimi-k2.5',
                         messages: [
                             {
                                 role: 'system',
                                 content: '你是一位專業的繁體中文摘要專家。用條列式大綱精簡總結以下 YouTube 影片逐字稿，重點突出關鍵資訊、數據、結論，每點不超過 30 字，總長控制在 300 字內。語言自然、邏輯清晰。'
                             },
-                            {
-                                role: 'user',
-                                content: transcript.substring(0, 8000)
-                            }
+                            { role: 'user', content: transcript.substring(0, 8000) }
                         ],
                         temperature: 0.3,
                         max_tokens: 500
                     })
                 });
-                if (!res.ok) {
-                    const err = await res.json();
-                    throw new Error(err.error?.message || res.status);
-                }
+                if (!res.ok) throw new Error('OpenRouter 錯誤: ' + res.status);
                 const data = await res.json();
                 return data.choices[0].message.content.trim();
             } catch (err) {
                 console.error('摘要錯誤:', err);
-                return '無法產生 AI 摘要（檢查 OpenRouter key 或網路）';
+                return '無法產生 AI 摘要';
             }
         }
 
@@ -189,7 +180,7 @@
             const seen = new Set();
 
             for (const ch of CHANNELS) {
-                const vids = await getLatestVideos(ch.id, 3);
+                const vids = await getLatestVideos(ch.id, 1);  // 每個頻道只取 1 則
                 const unique = vids.filter(v => !seen.has(v.videoId));
                 unique.forEach(v => seen.add(v.videoId));
                 allVideos.push(...unique);
@@ -212,47 +203,47 @@
                     <h3>${video.title}</h3>
                     <p>${video.channelName} | ${video.publishedAt}</p>
                     <a href="https://youtu.be/${video.videoId}" target="_blank">觀看原影片</a>
-                    <div class="transcript" id="trans-${video.videoId}">逐字稿載入中...</div>
-                    <div class="summary" id="sum-${video.videoId}">AI 摘要載入中...</div>
+                    <button onclick="loadTranscriptForVideo('${video.videoId}')">載入逐字稿 & AI 摘要</button>
+                    <div class="transcript" id="trans-${video.videoId}">逐字稿：未載入</div>
+                    <div class="summary" id="sum-${video.videoId}">AI 摘要：未載入</div>
                 `;
                 listDiv.appendChild(div);
-
-                getTranscript(video.videoId).then(transText => {
-                    const tDiv = document.getElementById(`trans-${video.videoId}`);
-                    tDiv.innerHTML = `
-                        <strong>逐字稿：</strong><br>
-                        <div style="white-space:pre-wrap;">${transText.slice(0,800)}${transText.length>800?'...':''}</div>
-                    `;
-                    if (transText.length > 800) {
-                        const btn = document.createElement('button');
-                        btn.textContent = '顯示全部逐字稿';
-                        btn.onclick = () => {
-                            tDiv.innerHTML += `<div style="white-space:pre-wrap;">${transText}</div>`;
-                            btn.remove();
-                        };
-                        tDiv.appendChild(btn);
-                    }
-
-                    // 產生 AI 摘要
-                    if (transText.length > 20) {
-                        summarizeTranscript(transText).then(summary => {
-                            document.getElementById(`sum-${video.videoId}`).innerHTML = `
-                                <strong>AI 摘要（繁體中文大綱）：</strong><br>
-                                <div style="white-space:pre-wrap;">${summary}</div>
-                            `;
-                        }).catch(e => {
-                            document.getElementById(`sum-${video.videoId}`).textContent = '摘要產生失敗';
-                        });
-                    } else {
-                        document.getElementById(`sum-${video.videoId}`).textContent = '內容太短，無需摘要';
-                    }
-                }).catch(e => {
-                    document.getElementById(`trans-${video.videoId}`).textContent = '逐字稿載入失敗';
-                    document.getElementById(`sum-${video.videoId}`).textContent = '無法摘要';
-                });
             });
 
             status.textContent = `完成（${allVideos.length} 則）`;
+        }
+
+        // 單一影片載入逐字稿 & 摘要（手動觸發）
+        async function loadTranscriptForVideo(videoId) {
+            const tDiv = document.getElementById(`trans-${videoId}`);
+            const sDiv = document.getElementById(`sum-${videoId}`);
+            tDiv.textContent = '逐字稿載入中...';
+            sDiv.textContent = 'AI 摘要載入中...';
+
+            const transText = await getTranscript(videoId);
+            tDiv.innerHTML = `
+                <strong>逐字稿：</strong><br>
+                <div style="white-space:pre-wrap;">${transText.slice(0,800)}${transText.length>800?'...':''}</div>
+            `;
+            if (transText.length > 800) {
+                const btn = document.createElement('button');
+                btn.textContent = '顯示全部逐字稿';
+                btn.onclick = () => {
+                    tDiv.innerHTML += `<div style="white-space:pre-wrap;">${transText}</div>`;
+                    btn.remove();
+                };
+                tDiv.appendChild(btn);
+            }
+
+            if (transText.length > 20) {
+                const summary = await summarizeTranscript(transText);
+                sDiv.innerHTML = `
+                    <strong>AI 摘要（繁體中文大綱）：</strong><br>
+                    <div style="white-space:pre-wrap;">${summary}</div>
+                `;
+            } else {
+                sDiv.textContent = '內容太短，無需摘要';
+            }
         }
 
         function loadLatestVideo() {

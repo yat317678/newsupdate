@@ -59,12 +59,13 @@
     <script src="https://www.youtube.com/iframe_api"></script>
 
     <script>
-        const YOUTUBE_API_KEY = 'AIzaSyDrloDZ0w8qFvwVYi_w-xJ-yJd8bigNa9I';  // Google YouTube API key
-        const OPENROUTER_API_KEY = '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';  // ← 填入 OpenRouter Bearer token
+        const YOUTUBE_API_KEY = 'AIzaSyDrloDZ0w8qFvwVYi_w-xJ-yJd8bigNa9I';          // ← 請填入你的 Google YouTube Data API v3 key
+        const SUPADATA_API_KEY = 'sd_55cac8442592c7e440da5ca2ea7f2fc7';     // ← 請填入你的 Supadata API key (sd_開頭)
+        const OPENROUTER_API_KEY = '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';       // ← 請填入你的 OpenRouter API key
 
         const CHANNELS = [
             { id: 'UCtSCw2_rVZKXb_8Uo9trStQ', name: 'nullmicgo' },
-            { id: 'UC6ly-Z341muZIdYGp5LGyBw', name: 'AInvest Official' }  // ← 填正確的 AInvest Channel ID
+            { id: 'UC6ly-Z341muZIdYGp5LGyBw', name: 'AInvest Official' }
         ];
 
         let player;
@@ -109,18 +110,31 @@
 
         async function getTranscript(videoId) {
             try {
-                const url = `https://api.supadata.ai/v1/transcript?url=https://youtu.be/${videoId}`;
-                const res = await fetch(url, {
-                    headers: { 'x-api-key': 'sd_55cac8442592c7e440da5ca2ea7f2fc7' }  // ← 如果你有 Supadata key，填這裡；否則用 fallback
+                // 先嘗試中文
+                let url = `https://api.supadata.ai/v1/transcript?url=https://youtu.be/${videoId}&lang=zh-TW`;
+                let res = await fetch(url, {
+                    headers: { 'x-api-key': SUPADATA_API_KEY }
                 });
-                if (!res.ok) throw new Error(`Supadata 錯誤: ${res.status}`);
+
+                if (!res.ok) {
+                    // fallback 英文（AInvest 多為英文 auto-captions）
+                    url = `https://api.supadata.ai/v1/transcript?url=https://youtu.be/${videoId}&lang=en`;
+                    res = await fetch(url, {
+                        headers: { 'x-api-key': SUPADATA_API_KEY }
+                    });
+                }
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(`Supadata 錯誤 ${res.status}: ${errText}`);
+                }
 
                 const data = await res.json();
                 const text = data.map(entry => entry.text || '').join(' ').trim();
                 return text || '無可用字幕';
             } catch (err) {
                 console.error('Transcript 錯誤:', err);
-                return '無法取得逐字稿';
+                return '無法取得逐字稿（' + err.message + '）';
             }
         }
 
@@ -131,11 +145,11 @@
                     headers: {
                         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
                         'Content-Type': 'application/json',
-                        'HTTP-Referer': 'https://your-github-pages-url.github.io',  // 可選，填你的網站 URL
-                        'X-OpenRouter-Title': 'Yat YouTube Reader'  // 可選
+                        'HTTP-Referer': 'https://your-github-pages-url.github.io',  // 可選，填你的網站
+                        'X-OpenRouter-Title': 'Yat YouTube Reader'            // 可選
                     },
                     body: JSON.stringify({
-                        model: 'moonshotai/kimi-k2.5',  // 首選 Kimi K2.5；想換 DeepSeek 可改 'deepseek/deepseek-chat'
+                        model: 'moonshotai/kimi-k2.5',  // 可改成 'deepseek/deepseek-chat' 更省錢
                         messages: [
                             {
                                 role: 'system',
@@ -143,10 +157,10 @@
                             },
                             {
                                 role: 'user',
-                                content: transcript.substring(0, 8000)  // 限長避免 token 爆
+                                content: transcript.substring(0, 8000)
                             }
                         ],
-                        temperature: 0.3,  // 低溫更精準
+                        temperature: 0.3,
                         max_tokens: 500
                     })
                 });
@@ -203,9 +217,9 @@
                 `;
                 listDiv.appendChild(div);
 
-                // 載入 transcript
                 getTranscript(video.videoId).then(transText => {
-                    document.getElementById(`trans-${video.videoId}`).innerHTML = `
+                    const tDiv = document.getElementById(`trans-${video.videoId}`);
+                    tDiv.innerHTML = `
                         <strong>逐字稿：</strong><br>
                         <div style="white-space:pre-wrap;">${transText.slice(0,800)}${transText.length>800?'...':''}</div>
                     `;
@@ -213,14 +227,14 @@
                         const btn = document.createElement('button');
                         btn.textContent = '顯示全部逐字稿';
                         btn.onclick = () => {
-                            document.getElementById(`trans-${video.videoId}`).innerHTML += `<div style="white-space:pre-wrap;">${transText}</div>`;
+                            tDiv.innerHTML += `<div style="white-space:pre-wrap;">${transText}</div>`;
                             btn.remove();
                         };
-                        document.getElementById(`trans-${video.videoId}`).appendChild(btn);
+                        tDiv.appendChild(btn);
                     }
 
-                    // 接著產生摘要
-                    if (transText.length > 100) {
+                    // 產生 AI 摘要
+                    if (transText.length > 20) {
                         summarizeTranscript(transText).then(summary => {
                             document.getElementById(`sum-${video.videoId}`).innerHTML = `
                                 <strong>AI 摘要（繁體中文大綱）：</strong><br>
@@ -241,7 +255,6 @@
             status.textContent = `完成（${allVideos.length} 則）`;
         }
 
-        // 廣播器部分（保持原樣，如果你有修改可貼來我再整合）
         function loadLatestVideo() {
             const status = document.getElementById('status');
             status.textContent = '正在載入最新視頻...';
